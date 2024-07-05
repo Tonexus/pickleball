@@ -40,11 +40,17 @@ class SignUpView(discord.ui.View):
         self.description = description
 
     async def update_messages(self, messages, users, guild):
+        # format users
         user_strs = []
         for u_id in users:
             user_strs.append("\n* {}".format((await get_member(guild, u_id)).mention))
-        out = "{}\nSigned up:{}".format(self.description, "".join(user_strs))
-        # TODO parallel
+
+        if len(user_strs == 0):
+            out = "{}\nBe the first to sign up!"
+        else:
+            out = "{}\nSigned up:{}".format(self.description, "".join(user_strs))
+
+        # edit all messages TODO parallel
         for c_id, m_id in messages:
             await (await (await get_channel(guild, c_id)).fetch_message(m_id)).edit(
                 content=out,
