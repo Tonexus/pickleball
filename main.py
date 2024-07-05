@@ -9,7 +9,6 @@ from discord.ext import commands
 import consts
 import metadata
 import signup
-import views
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -25,6 +24,68 @@ def create_guild(guild: discord.Guild):
 
 def delete_guild(guild: discord.Guild):
     shutil.rmtree(consts.DATA_DIR / str(guild.id))
+
+async def get_member(guild, u_id):
+    user = guild.get_member(u_id)
+    return (await guild.fetch_member(u_id)) if user is None else user
+
+async def get_channel(guild, c_id):
+    chn = guild.get_channel(c_id)
+    return (await guild.fetch_channel(c_id)) if chn is None else chn
+
+class SignUpView(discord.ui.View):
+    def __init__(self, su_id, description):
+        super().__init__()
+        self.su_id = su_id
+        self.description = description
+
+    async def update_messages(self, messages, users, guild):
+        user_strs = []
+        for u_id in users:
+            user_strs.append("\n* {}".format((await get_member(guild, u_id)).mention))
+        out = "{}\nSigned up:{}".format(self.description, "".join(user_strs))
+        # TODO parallel
+        for c_id, m_id in messages:
+            await (await (await get_channel(guild, c_id)).fetch_message(m_id)).edit(
+                content=out,
+                view=self,
+            )
+
+    @discord.ui.button(label="Sign Up")
+    async def sign_up(self, intrxn, button):
+        path = su_path(intrxn.guild, self.su_id) / consts.SIGN_FILE
+
+        try:
+            sign_up = pickle.loads(path.read_bytes())
+        except KeyError:
+            # TODO fix
+            return
+
+        sign_up.users.add(intrxn.user.id)
+        path.write_bytes(pickle.dumps(sign_up))
+
+        # update each message with list of signed-up users
+        await self.update_messages(sign_up.messages, sign_up.users, intrxn.guild)
+
+        await intrxn.response.defer()
+
+    @discord.ui.button(label="Cancel")
+    async def cancel(self, intrxn, button):
+        path = su_path(intrxn.guild, self.su_id) / consts.SIGN_FILE
+
+        try:
+            sign_up = pickle.loads(path.read_bytes())
+        except KeyError:
+            # TODO fix
+            return
+
+        sign_up.users.discard(intrxn.user.id)
+        path.write_bytes(pickle.dumps(sign_up))
+
+        # update each message with list of signed-up users
+        await self.update_messages(sign_up.messages, sign_up.users, intrxn.guild)
+
+        await intrxn.response.defer()
 
 @bot.event
 async def on_guild_join(guild: discord.Guild):
@@ -154,32 +215,59 @@ async def open_sign_up(ctx, su_id):
         return
 
     if (path / consts.SIGN_FILE).exists():
-        await ctx.send("Sign-up is already open.")
+        await ctx.send("Sign-up is must be closed.")
         return
 
     # open metadata
-    with (path / consts.META_FILE).open("rb") as f:
-        meta = pickle.load(f)
-        view = views.SignUpView()
+    meta = pickle.loads((path / consts.META_FILE).read_bytes())
+    view = SignUpView(su_id, meta.description)
 
-        # send sign up message to all channels
-        msgs = []
-        for chn in meta.channels:
-            try:
-                msgs.append(await ctx.guild.get_channel(chn).send(meta.description, view=view))
-            except (discord.HTTPException, discord.Forbidden):
-                pass
+    # send sign up message to all channels
+    msgs = []
+    for chn in meta.channels:
+        try:
+            msgs.append((chn, (await (await get_channel(ctx.guild, chn)).send(meta.description, view=view)).id))
+        except (discord.HTTPException, discord.Forbidden):
+            pass
 
-        # save messages for updates in sign up file
-        (path / consts.SIGN_FILE).write_bytes(pickle.dumps(signup.SignUp(set(msg.id for msg in msgs))))
+    print(msgs)
 
-        fails = len(meta.channels) - len(msgs)
+    # save messages for updates in sign up file
+    (path / consts.SIGN_FILE).write_bytes(pickle.dumps(signup.SignUp(set(msg for msg in msgs))))
+
+    fails = len(meta.channels) - len(msgs)
 
     # response
     if fails == 0:
         await ctx.send("Opened sign-up successfully.")
     else:
         await ctx.send("Opened sign-up with {} failures.".format(fails))
+
+@bot.command()
+async def update_sign_up_messages(ctx, su_id):
+    path = su_path(ctx.guild, su_id)
+
+    if not path.exists():
+        await ctx.send("Sign-up does not exist.")
+        return
+
+    if not (path / consts.SIGN_FILE).exists():
+        await ctx.send("Sign-up must be open.")
+        return
+
+    # open metadata
+    meta = pickle.loads((path / consts.META_FILE).read_bytes())
+    view = SignUpView(su_id, meta.description)
+
+    # open sign up
+    sign_up = pickle.loads((path / consts.SIGN_FILE).read_bytes())
+
+    # update messages
+    await view.update_messages(sign_up.messages, sign_up.users, ctx.guild)
+
+    # response
+    await ctx.send("Sign-up messages updated.")
+
 
 @bot.command()
 async def close_sign_up(ctx, su_id):
@@ -190,7 +278,7 @@ async def close_sign_up(ctx, su_id):
         return
 
     if not (path / consts.SIGN_FILE).exists():
-        await ctx.send("Sign-up is already closed.")
+        await ctx.send("Sign-up must be open.")
         return
 
     # TODO read, perform lottery, update messages, and add to history
