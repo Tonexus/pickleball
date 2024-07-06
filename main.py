@@ -102,7 +102,22 @@ async def on_guild_remove(guild: discord.Guild):
     delete_guild(guild)
 
 @bot.command()
-async def reset_guild(ctx):
+async def pbot_help(ctx):
+    await ctx.send(
+        "* `pbot_help`: prints this message\n"
+        "* `reset_server`: resets all server data\n"
+        "* `create_sign_up`: creates a new sign up with supplied id\n"
+        "* `delete_sign_up`: deletes a sign up by the supplied id\n"
+        "* `get_sign_ups`: lists all sign ups for the server with some info\n"
+        "* `add_channel_to_sign_up`: adds the channel the command is executed in to the sign up with supplied id\n"
+        "* `remove_channel_from_sign_up`: removes the channel the command is executed in from the sign up with supplied id\n"
+        "* `open_sign_up`: opens a sign up by id and posts message to all of the sign up's channels\n"
+        "* `close_sign_up`: closes a sign up by id (currently just deletes list of signed up users)\n"
+        "* `update_sign_up_messages`: forces all sign up messages associated with the id to be updated (needed if bot goes offline)\n"
+    )
+
+@bot.command()
+async def reset_server(ctx):
     try:
         delete_guild(ctx.guild)
     except:
