@@ -45,8 +45,8 @@ class SignUpView(discord.ui.View):
         for u_id in users:
             user_strs.append("\n* {}".format((await get_member(guild, u_id)).mention))
 
-        if len(user_strs == 0):
-            out = "{}\nBe the first to sign up!"
+        if len(user_strs) == 0:
+            out = "{}\nBe the first to sign up!".format(self.description)
         else:
             out = "{}\nSigned up:{}".format(self.description, "".join(user_strs))
 
